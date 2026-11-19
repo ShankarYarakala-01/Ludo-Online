@@ -48,6 +48,8 @@
     50%      { box-shadow:0 0 10px 3px rgba(255,255,255,0.8); }
   }
 
+  #soundBtn { position:fixed; top:8px; right:8px; z-index:20; width:40px; height:40px; padding:0; border-radius:50%; font-size:20px; background:#3a3a52; line-height:40px; }
+
   #winner { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); display:none; padding:18px 30px; border-radius:16px; font-size:28px; font-weight:bold; color:#000; box-shadow:0 8px 30px rgba(0,0,0,0.6); z-index:10; }
 </style>
 </head>
@@ -95,6 +97,7 @@
   </div>
 </div>
 <div id="winner"></div>
+<button id="soundBtn" title="Sound on/off">🔊</button>
 
 <script>
 // ---------- Constants ----------
@@ -151,6 +154,63 @@ const diceCanvas = $('diceCanvas');
 const dctx = diceCanvas.getContext('2d');
 const rollBtn = $('rollBtn');
 const winnerEl = $('winner');
+
+// ---------- Sound effects (made by the browser itself, no files needed) ----------
+let soundOn = true;
+try { soundOn = localStorage.getItem('ludoSound') !== 'off'; } catch (e) { /* ignore */ }
+let actx = null;
+function audio() {
+  if (!soundOn) return null;
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) { return null; }
+  return actx;
+}
+function tone(freq, dur, type, vol, delay, endFreq) {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + (delay || 0);
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t);
+  if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol || 0.15, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function tick(delay, vol) {   // short noise burst, like dice clattering
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + (delay || 0);
+  const len = Math.floor(a.sampleRate * 0.03);
+  const buf = a.createBuffer(1, len, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const s = a.createBufferSource(); s.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800 + Math.random() * 1500;
+  const g = a.createGain(); g.gain.value = vol || 0.2;
+  s.connect(f); f.connect(g); g.connect(a.destination); s.start(t);
+}
+const sfx = {
+  rattle() { for (let i = 0; i < 14; i++) tick(i * 0.085 + Math.random() * 0.02, 0.28 * (1 - i / 18)); },
+  land()   { tone(180, 0.12, 'sine', 0.25, 0, 90); },
+  step()   { tone(520, 0.06, 'triangle', 0.12); },
+  out()    { tone(400, 0.12, 'sine', 0.18, 0, 800); },
+  capture(){ tone(500, 0.25, 'sawtooth', 0.12, 0, 120); tick(0, 0.3); },
+  home()   { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'triangle', 0.16, i * 0.1)); },
+  turn()   { tone(880, 0.1, 'sine', 0.1); tone(1175, 0.14, 'sine', 0.1, 0.1); },
+  win()    { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, 0.22, 'square', 0.08, i * 0.14)); }
+};
+function updateSoundBtn() { $('soundBtn').textContent = soundOn ? '🔊' : '🔇'; }
+$('soundBtn').onclick = () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem('ludoSound', soundOn ? 'on' : 'off'); } catch (e) { /* ignore */ }
+  updateSoundBtn();
+  if (soundOn) sfx.turn();
+};
+updateSoundBtn();
+document.addEventListener('pointerdown', () => audio());   // browsers only allow sound after a tap
 
 // ---------- Screens ----------
 function show(which) {
@@ -291,6 +351,7 @@ function showWinner(w) {
   winnerEl.style.background = COLORS[w];
   winnerEl.textContent = NAMES[w] + (w === mySeat ? ' (you) win! 🎉' : ' wins! 🎉');
   winnerEl.style.display = 'block';
+  sfx.win();
 }
 
 async function handleRoom(s) {
@@ -312,8 +373,10 @@ async function handleRoom(s) {
     movable = [];
     phase = 'rolling';
     updateControls();
+    sfx.rattle();
     await new Promise(res => { diceAnim = { start: performance.now(), duration: 1300, done: res }; });
     diceAnim = null;
+    sfx.land();
     return;
   }
 
@@ -325,13 +388,17 @@ async function handleRoom(s) {
     const P = players[a.player];
     if (a.from === -1) {
       P.tokens[a.token] = 0;
+      sfx.out();
       await slideTo(a.player, a.token, tokenPixel(a.player, a.token), 350);
     } else {
       for (let step = a.from + 1; step <= a.to; step++) {
         P.tokens[a.token] = step;
+        sfx.step();
         await slideTo(a.player, a.token, tokenPixel(a.player, a.token), 170);
       }
     }
+    if (a.captured.length) sfx.capture();
+    if (a.to === FINISHED) sfx.home();
     a.captured.forEach(c => {
       players[c.p].tokens[c.i] = -1;
       slideTo(c.p, c.i, homePixel(c.p, c.i), 500);
@@ -347,6 +414,7 @@ async function handleRoom(s) {
   movable = s.movable || [];
   if (phase === 'over' && s.winner >= 0) showWinner(s.winner); else winnerEl.style.display = 'none';
   updateControls();
+  if (phase === 'roll' && current === mySeat) sfx.turn();
 }
 
 // ---------- Geometry helpers ----------
