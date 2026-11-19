@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ludo</title>
+<style>
+  html, body { height:100%; overflow:hidden; }
+  body { font-family: Arial, sans-serif; background:#1e1e2e; color:#eee; text-align:center; margin:0; padding:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  h1 { margin:6px 0; }
+  .card { width:340px; max-width:92vw; margin:0 auto; background:#2a2a3d; border-radius:14px; padding:18px 22px 22px; box-shadow:0 6px 24px rgba(0,0,0,0.4); box-sizing:border-box; }
+  .card p { margin:0 0 12px; font-size:18px; font-weight:bold; }
+  .card .hint { font-size:13px; font-weight:normal; color:#aaa; margin:10px 0 0; }
+  .card .row { display:grid; grid-template-columns:22px 1fr 140px; align-items:center; column-gap:10px; margin:10px 0; text-align:left; }
+  .card .row .dot { width:18px; height:18px; margin:0; }
+  .card select { width:100%; background:#1e1e2e; color:#eee; border:1px solid #555; }
+  .card .wide { display:block; width:100%; box-sizing:border-box; padding:12px; font-size:18px; margin:14px 0 0; }
+  .card hr { border:none; border-top:1px solid #444; margin:20px 0 14px; }
+  .joinWrap { display:flex; gap:8px; }
+  .joinWrap input { flex:1; min-width:0; font-size:20px; letter-spacing:4px; text-transform:uppercase; text-align:center; padding:8px; border-radius:6px; border:1px solid #555; background:#1e1e2e; color:#eee; }
+  .joinWrap button { padding:8px 18px; font-size:18px; }
+  #codeBig { font-size:44px; font-weight:bold; letter-spacing:10px; margin:2px 0 8px; padding-left:10px; }
+  .seat { display:grid; grid-template-columns:22px 1fr auto; align-items:center; column-gap:10px; margin:10px 0; text-align:left; min-height:34px; }
+  .seat .dot { width:18px; height:18px; margin:0; }
+  .seat .st { color:#aaa; font-size:14px; }
+  .seat .st.you { color:#8fe08f; font-weight:bold; }
+  .seat.off { opacity:0.45; }
+  .seat button { padding:5px 12px; font-size:14px; background:#3f51b5; }
+  .secondary { background:#555; }
+
+  #game { width:100%; height:100%; display:none; flex-direction:column; align-items:center; justify-content:center; box-sizing:border-box; padding-bottom:max(12px, env(safe-area-inset-bottom, 0px)); }
+  .row { margin:8px 0; }
+  select, button { font-size:16px; padding:6px 12px; border-radius:6px; border:none; }
+  button { background:#4caf50; color:white; cursor:pointer; }
+  button:disabled { background:#555; cursor:default; }
+  canvas { background:#fff; border-radius:8px; }
+  #controls { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; margin:4px 0; width:100%; }
+  #buttons { display:flex; gap:14px; justify-content:center; margin-bottom:2px; }
+  #buttons button { min-width:130px; padding:12px 18px; font-size:18px; }
+  #diceCanvas { display:block; margin:0 auto; background:transparent; width:200px; height:80px; }
+  #me { font-size:13px; color:#aaa; min-height:16px; }
+  .dot { display:inline-block; width:14px; height:14px; border-radius:50%; margin-right:6px; }
+
+  /* Roll button gives a soft, slow white glow while it is your turn to roll */
+  #rollBtn:not(:disabled) { animation: rollPulse 2.2s ease-in-out infinite; }
+  @keyframes rollPulse {
+    0%, 100% { box-shadow:0 0 0 0 rgba(255,255,255,0); }
+    50%      { box-shadow:0 0 10px 3px rgba(255,255,255,0.8); }
+  }
+
+  #winner { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); display:none; padding:18px 30px; border-radius:16px; font-size:28px; font-weight:bold; color:#000; box-shadow:0 8px 30px rgba(0,0,0,0.6); z-index:10; }
+</style>
+</head>
+<body>
+<h1 id="title">Ludo</h1>
+
+<!-- Home: create or join a room -->
+<div id="home" class="card">
+  <p>Create a room</p>
+  <div class="row"><span class="dot" style="background:#e53935"></span><span>Red</span><select id="p0"><option value="human">Human</option><option value="cpu">Computer</option><option value="off">Not playing</option></select></div>
+  <div class="row"><span class="dot" style="background:#43a047"></span><span>Green</span><select id="p1"><option value="human">Human</option><option value="cpu">Computer</option><option value="off">Not playing</option></select></div>
+  <div class="row"><span class="dot" style="background:#fdd835"></span><span>Yellow</span><select id="p2"><option value="human">Human</option><option value="cpu">Computer</option><option value="off">Not playing</option></select></div>
+  <div class="row"><span class="dot" style="background:#1e88e5"></span><span>Blue</span><select id="p3"><option value="human">Human</option><option value="cpu">Computer</option><option value="off">Not playing</option></select></div>
+  <button id="createBtn" class="wide">Create Room</button>
+  <p class="hint">Human seats are for you and your friends. Any Human seat nobody joins becomes a Computer player.</p>
+  <hr>
+  <p>Join a friend</p>
+  <div class="joinWrap">
+    <input id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters">
+    <button id="joinBtn">Join</button>
+  </div>
+</div>
+
+<!-- Lobby -->
+<div id="lobby" class="card" style="display:none">
+  <p>Room code</p>
+  <div id="codeBig"></div>
+  <button id="copyBtn" class="secondary" style="width:100%;padding:10px;">Copy invite link</button>
+  <div id="seatList" style="margin-top:14px"></div>
+  <button id="startBtn" class="wide">Start Game</button>
+  <p id="waitMsg" class="hint" style="display:none">Waiting for the host to start…</p>
+  <button id="leaveLobbyBtn" class="wide secondary" style="font-size:16px;padding:9px;">Leave</button>
+</div>
+
+<!-- Game -->
+<div id="game">
+  <canvas id="board" width="600" height="600"></canvas>
+  <div id="controls">
+    <canvas id="diceCanvas" width="500" height="200"></canvas>
+    <div id="buttons">
+      <button id="rollBtn" disabled>Roll Dice</button>
+      <button id="leaveBtn">Leave</button>
+    </div>
+    <div id="me"></div>
+  </div>
+</div>
+<div id="winner"></div>
+
+<script>
+// ---------- Constants ----------
+const COLORS = ['#e53935', '#43a047', '#fdd835', '#1e88e5'];
+const NAMES = ['Red', 'Green', 'Yellow', 'Blue'];
+const CELL = 40;
+
+const TRACK = [
+  [1,6],[2,6],[3,6],[4,6],[5,6],
+  [6,5],[6,4],[6,3],[6,2],[6,1],[6,0],
+  [7,0],[8,0],
+  [8,1],[8,2],[8,3],[8,4],[8,5],
+  [9,6],[10,6],[11,6],[12,6],[13,6],[14,6],
+  [14,7],[14,8],
+  [13,8],[12,8],[11,8],[10,8],[9,8],
+  [8,9],[8,10],[8,11],[8,12],[8,13],[8,14],
+  [7,14],[6,14],
+  [6,13],[6,12],[6,11],[6,10],[6,9],
+  [5,8],[4,8],[3,8],[2,8],[1,8],[0,8],
+  [0,7],[0,6]
+];
+const START_INDEX = [0, 13, 26, 39];
+const HOME_COL = [
+  [[1,7],[2,7],[3,7],[4,7],[5,7]],
+  [[7,1],[7,2],[7,3],[7,4],[7,5]],
+  [[13,7],[12,7],[11,7],[10,7],[9,7]],
+  [[7,13],[7,12],[7,11],[7,10],[7,9]]
+];
+const YARD_ORIGIN = [[0,0],[9,0],[9,9],[0,9]];
+const YARD_SLOTS = [[2, 2], [4, 2], [2, 4], [4, 4]];
+const SAFE_TRACK = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+const FINISHED = 56;
+
+// ---------- State ----------
+let players = [];       // {type, tokens} mirrored from the server
+let current = 0;
+let dice = 0;
+let phase = 'roll';     // 'roll' | 'rolling' | 'move' | 'moving' | 'over'
+let movable = [];
+let visual = [];
+let diceAnim = null;
+let mySeat = -1;
+let gameShown = false;
+
+let es = null;
+let session = null;     // {code, cid}
+let epoch = 0;
+let queue = Promise.resolve();
+
+const $ = id => document.getElementById(id);
+const canvas = $('board');
+const ctx = canvas.getContext('2d');
+const diceCanvas = $('diceCanvas');
+const dctx = diceCanvas.getContext('2d');
+const rollBtn = $('rollBtn');
+const winnerEl = $('winner');
+
+// ---------- Screens ----------
+function show(which) {
+  $('home').style.display = which === 'home' ? 'block' : 'none';
+  $('lobby').style.display = which === 'lobby' ? 'block' : 'none';
+  $('game').style.display = which === 'game' ? 'flex' : 'none';
+  $('title').style.display = which === 'game' ? 'none' : 'block';
+  if (which === 'game') resizeBoard();
+}
+
+function resizeBoard() {
+  const size = Math.max(250, Math.min(window.innerWidth - 6, window.innerHeight - 195));
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+}
+window.addEventListener('resize', resizeBoard);
+
+// ---------- Networking ----------
+async function api(path, body) {
+  try {
+    const r = await fetch('/api/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return await r.json();
+  } catch (e) {
+    return { error: 'Cannot reach the server. Check your connection.' };
+  }
+}
+
+function saveSession() {
+  try { localStorage.setItem('ludoSession', JSON.stringify(session)); } catch (e) { /* ignore */ }
+}
+function clearSession() {
+  try { localStorage.removeItem('ludoSession'); } catch (e) { /* ignore */ }
+}
+
+function connect() {
+  if (es) es.close();
+  es = new EventSource('/api/events?code=' + encodeURIComponent(session.code) + '&cid=' + encodeURIComponent(session.cid));
+  es.onmessage = e => {
+    let m;
+    try { m = JSON.parse(e.data); } catch (err) { return; }
+    if (m.type === 'gone') { leave('That room no longer exists.'); return; }
+    const ep = epoch;
+    queue = queue.then(() => (ep === epoch ? handleRoom(m) : null)).catch(err => console.error(err));
+  };
+}
+
+function enterRoom(r) {
+  if (r.error) { alert(r.error); return; }
+  session = { code: r.code, cid: r.cid };
+  saveSession();
+  connect();
+}
+
+function leave(msg) {
+  if (es) { es.close(); es = null; }
+  clearSession();
+  session = null;
+  epoch++;
+  queue = Promise.resolve();
+  players = []; visual = []; movable = []; dice = 0; phase = 'roll'; diceAnim = null; mySeat = -1; gameShown = false;
+  winnerEl.style.display = 'none';
+  show('home');
+  if (msg) alert(msg);
+}
+
+// ---------- Home / lobby buttons ----------
+$('createBtn').onclick = async () => {
+  const config = [0, 1, 2, 3].map(i => $('p' + i).value);
+  enterRoom(await api('create', { config }));
+};
+$('joinBtn').onclick = async () => {
+  const code = $('codeInput').value.trim().toUpperCase();
+  if (code.length !== 4) { alert('Enter the 4-letter room code.'); return; }
+  enterRoom(await api('join', { code }));
+};
+$('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('joinBtn').click(); });
+$('copyBtn').onclick = async () => {
+  const link = location.origin + '/?room=' + (session ? session.code : '');
+  try {
+    await navigator.clipboard.writeText(link);
+    $('copyBtn').textContent = 'Copied!';
+    setTimeout(() => { $('copyBtn').textContent = 'Copy invite link'; }, 1500);
+  } catch (e) { prompt('Copy this invite link:', link); }
+};
+$('startBtn').onclick = () => { if (session) api('start', session); };
+$('leaveLobbyBtn').onclick = async () => { if (session) await api('leave', session); leave(); };
+$('leaveBtn').onclick = async () => { if (session) await api('leave', session); leave(); };
+
+rollBtn.onclick = async () => {
+  if (!(phase === 'roll' && current === mySeat) || !session) return;
+  rollBtn.disabled = true;
+  const r = await api('roll', session);
+  if (r.error) updateControls();
+};
+
+function showLobby(s) {
+  show('lobby');
+  $('codeBig').textContent = s.code;
+  $('seatList').innerHTML = '';
+  s.seats.forEach((seat, i) => {
+    const row = document.createElement('div');
+    row.className = 'seat' + (seat.type === 'off' ? ' off' : '');
+    let label = 'Not playing', cls = 'st';
+    if (seat.type === 'cpu') label = 'Computer';
+    if (seat.type === 'human') {
+      if (seat.state === 'you') { label = 'You'; cls += ' you'; }
+      else if (seat.state === 'taken') label = 'Friend joined';
+      else label = 'Waiting…';
+    }
+    row.innerHTML = '<span class="dot" style="background:' + COLORS[i] + '"></span><span>' + NAMES[i] + ' <span class="' + cls + '">· ' + label + '</span></span>';
+    if (seat.type === 'human' && seat.state === 'open') {
+      const b = document.createElement('button');
+      b.textContent = 'Sit here';
+      b.onclick = () => api('seat', { code: session.code, cid: session.cid, seat: i });
+      row.appendChild(b);
+    } else {
+      row.appendChild(document.createElement('span'));
+    }
+    $('seatList').appendChild(row);
+  });
+  $('startBtn').style.display = s.isHost ? 'block' : 'none';
+  $('waitMsg').style.display = s.isHost ? 'none' : 'block';
+}
+
+// ---------- Applying server state ----------
+function setTokens(s) {
+  players.forEach((pl, p) => { pl.type = s.types[p]; pl.tokens = s.tokens[p].slice(); });
+}
+
+function updateControls() {
+  rollBtn.disabled = !(phase === 'roll' && current === mySeat);
+  $('me').innerHTML = mySeat >= 0
+    ? 'Room ' + (session ? session.code : '') + ' · You are <span class="dot" style="background:' + COLORS[mySeat] + ';margin:0 4px 0 2px;vertical-align:middle"></span>' + NAMES[mySeat]
+    : 'Room ' + (session ? session.code : '');
+}
+
+function showWinner(w) {
+  winnerEl.style.background = COLORS[w];
+  winnerEl.textContent = NAMES[w] + (w === mySeat ? ' (you) win! 🎉' : ' wins! 🎉');
+  winnerEl.style.display = 'block';
+}
+
+async function handleRoom(s) {
+  if (!s.started) { gameShown = false; showLobby(s); return; }
+
+  mySeat = s.mySeat;
+  if (!gameShown) {
+    players = s.types.map((t, p) => ({ type: t, tokens: s.tokens[p].slice() }));
+    visual = players.map((pl, p) => pl.tokens.map((_, i) => ({ ...tokenPixel(p, i) })));
+    gameShown = true;
+    winnerEl.style.display = 'none';
+    show('game');
+  }
+  current = s.current;
+  dice = s.dice || dice;
+
+  if (s.anim && s.anim.type === 'roll') {
+    setTokens(s);
+    movable = [];
+    phase = 'rolling';
+    updateControls();
+    await new Promise(res => { diceAnim = { start: performance.now(), duration: 1300, done: res }; });
+    diceAnim = null;
+    return;
+  }
+
+  if (s.anim && s.anim.type === 'move') {
+    const a = s.anim;
+    phase = 'moving';
+    movable = [];
+    updateControls();
+    const P = players[a.player];
+    if (a.from === -1) {
+      P.tokens[a.token] = 0;
+      await slideTo(a.player, a.token, tokenPixel(a.player, a.token), 350);
+    } else {
+      for (let step = a.from + 1; step <= a.to; step++) {
+        P.tokens[a.token] = step;
+        await slideTo(a.player, a.token, tokenPixel(a.player, a.token), 170);
+      }
+    }
+    a.captured.forEach(c => {
+      players[c.p].tokens[c.i] = -1;
+      slideTo(c.p, c.i, homePixel(c.p, c.i), 500);
+    });
+    setTokens(s);
+    if (s.phase === 'over') { phase = 'over'; showWinner(s.winner); updateControls(); }
+    return;
+  }
+
+  // Plain snapshot (turn changes, reconnects)
+  setTokens(s);
+  phase = s.phase;
+  movable = s.movable || [];
+  if (phase === 'over' && s.winner >= 0) showWinner(s.winner); else winnerEl.style.display = 'none';
+  updateControls();
+}
+
+// ---------- Geometry helpers ----------
+function cellCenter(c, r) { return { x: c * CELL + CELL / 2, y: r * CELL + CELL / 2 }; }
+function homePixel(p, i) {
+  const [oc, or] = YARD_ORIGIN[p];
+  const [sx, sy] = YARD_SLOTS[i];
+  return { x: (oc + sx) * CELL, y: (or + sy) * CELL };
+}
+function progressPixel(p, prog) {
+  if (prog <= 50) { const [c, r] = TRACK[(START_INDEX[p] + prog) % 52]; return cellCenter(c, r); }
+  if (prog <= 55) { const [c, r] = HOME_COL[p][prog - 51]; return cellCenter(c, r); }
+  return cellCenter(7, 7);
+}
+function tokenPixel(p, i) {
+  const prog = players[p].tokens[i];
+  if (prog === -1) return homePixel(p, i);
+  const base = progressPixel(p, prog);
+  if (prog === FINISHED) {
+    return { x: base.x + (p % 2 ? 1 : -1) * 8 + (i - 1.5) * 4, y: base.y + (i - 1.5) * 6 };
+  }
+  return base;
+}
+
+// ---------- Animation helpers ----------
+function slideTo(p, i, target, ms) {
+  return new Promise(res => {
+    const v = visual[p][i];
+    const sx = v.x, sy = v.y, t0 = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - t0) / ms);
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      v.x = sx + (target.x - sx) * e;
+      v.y = sy + (target.y - sy) * e;
+      if (t < 1) requestAnimationFrame(step); else res();
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+// ---------- Picking a pawn ----------
+async function handlePick(clientX, clientY) {
+  if (phase !== 'move' || current !== mySeat || !session) return;
+  const rect = canvas.getBoundingClientRect();
+  const scale = canvas.width / rect.width;
+  const x = (clientX - rect.left) * scale;
+  const y = (clientY - rect.top) * scale;
+  const all = [];
+  players.forEach((pl, p) => { if (pl.type !== 'off') pl.tokens.forEach((_, i) => all.push({ p: p, i: i })); });
+  const offsets = stackOffsets(all);
+  let best = -1, bestDist = CELL * 1.0;
+  for (const i of movable) {
+    const v = visual[mySeat][i];
+    const off = offsets[mySeat + '-' + i] || { dx: 0, dy: 0 };
+    const d = Math.hypot(x - (v.x + off.dx), y - (v.y + off.dy));
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  if (best < 0) return;
+  const prevMovable = movable;
+  movable = [];
+  phase = 'moving';
+  const r = await api('move', { code: session.code, cid: session.cid, token: best });
+  if (r.error && phase === 'moving' && !diceAnim) { phase = 'move'; movable = prevMovable; }
+}
+canvas.addEventListener('click', e => handlePick(e.clientX, e.clientY));
+
+// ---------- Drawing ----------
+function cellRect(c, r, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+  ctx.strokeStyle = '#999';
+  ctx.strokeRect(c * CELL, r * CELL, CELL, CELL);
+}
+
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (n >> 16) + amt));
+  const g = Math.max(0, Math.min(255, ((n >> 8) & 255) + amt));
+  const b = Math.max(0, Math.min(255, (n & 255) + amt));
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+function drawPawn(cx, cy, color, movableNow, time) {
+  const s = CELL / 40;
+  let lift = 0;
+  if (movableNow) lift = Math.abs(Math.sin(time / 220)) * 7 * s;
+  const baseY = cy + 12 * s;
+  ctx.save();
+
+  if (movableNow) {
+    const pulse = 0.5 + 0.5 * Math.sin(time / 180);
+    ctx.lineWidth = 3 + pulse * 2;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.7 + 0.3 * pulse) + ')';
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 8 + pulse * 10;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY + 1 * s, (17 + pulse * 4) * s, (8 + pulse * 2) * s, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY + 1 * s, (19 + pulse * 4) * s, (9 + pulse * 2) * s, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,' + (0.35 - lift * 0.02) + ')';
+  ctx.beginPath();
+  ctx.ellipse(cx + 2 * s, baseY + 3 * s, (14 - lift * 0.3) * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.translate(0, -lift);
+
+  const bodyGrad = ctx.createLinearGradient(cx - 13 * s, 0, cx + 13 * s, 0);
+  bodyGrad.addColorStop(0, shade(color, -70));
+  bodyGrad.addColorStop(0.35, shade(color, 40));
+  bodyGrad.addColorStop(1, shade(color, -90));
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.moveTo(cx - 6 * s, cy - 4 * s);
+  ctx.lineTo(cx + 6 * s, cy - 4 * s);
+  ctx.quadraticCurveTo(cx + 9 * s, cy + 6 * s, cx + 14 * s, baseY);
+  ctx.ellipse(cx, baseY, 14 * s, 5 * s, 0, 0, Math.PI);
+  ctx.quadraticCurveTo(cx - 9 * s, cy + 6 * s, cx - 6 * s, cy - 4 * s);
+  ctx.fill();
+  ctx.strokeStyle = shade(color, -110);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.fillStyle = shade(color, -30);
+  ctx.beginPath();
+  ctx.ellipse(cx, baseY, 14 * s, 5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const hx = cx, hy = cy - 8 * s, hr = 9 * s;
+  const headGrad = ctx.createRadialGradient(hx - 3 * s, hy - 3 * s, 1 * s, hx, hy, hr);
+  headGrad.addColorStop(0, shade(color, 110));
+  headGrad.addColorStop(0.5, color);
+  headGrad.addColorStop(1, shade(color, -100));
+  ctx.fillStyle = headGrad;
+  ctx.beginPath();
+  ctx.arc(hx, hy, hr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = shade(color, -120);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.beginPath();
+  ctx.ellipse(hx - 3 * s, hy - 4 * s, 2.5 * s, 1.8 * s, -0.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBoard(time) {
+  ctx.clearRect(0, 0, 600, 600);
+  const turnOn = phase !== 'over' && players[current] && players[current].type !== 'off';
+  const pulse = 0.5 + 0.5 * Math.sin(time / 280);
+
+  YARD_ORIGIN.forEach(([c, r], i) => {
+    ctx.fillStyle = COLORS[i];
+    ctx.fillRect(c * CELL, r * CELL, 6 * CELL, 6 * CELL);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect((c + 1) * CELL, (r + 1) * CELL, 4 * CELL, 4 * CELL);
+    if (turnOn && i === current) {
+      ctx.fillStyle = COLORS[i];
+      ctx.globalAlpha = 0.12 + 0.43 * pulse;
+      ctx.fillRect((c + 1) * CELL, (r + 1) * CELL, 4 * CELL, 4 * CELL);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    YARD_SLOTS.forEach(([sx, sy]) => {
+      ctx.beginPath();
+      ctx.arc((c + sx) * CELL, (r + sy) * CELL, CELL * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  });
+
+  if (turnOn) {
+    const [yc, yr] = YARD_ORIGIN[current];
+    ctx.save();
+    ctx.shadowColor = COLORS[current];
+    ctx.shadowBlur = 10 + 30 * pulse;
+    ctx.lineWidth = 6 + 4 * pulse;
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 + 0.45 * pulse) + ')';
+    ctx.strokeRect(yc * CELL + 5, yr * CELL + 5, 6 * CELL - 10, 6 * CELL - 10);
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 8 + 14 * pulse;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0,0,0,' + (0.5 + 0.5 * pulse) + ')';
+    ctx.strokeRect(yc * CELL + 1, yr * CELL + 1, 6 * CELL - 2, 6 * CELL - 2);
+    ctx.restore();
+    ctx.lineWidth = 1;
+  }
+
+  TRACK.forEach(([c, r], idx) => {
+    let col = '#fff';
+    START_INDEX.forEach((s, p) => { if (s === idx) col = COLORS[p]; });
+    cellRect(c, r, col);
+    if (SAFE_TRACK.has(idx)) {
+      ctx.fillStyle = '#555';
+      ctx.font = '20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('★', c * CELL + CELL / 2, r * CELL + CELL / 2 + 7);
+    }
+  });
+  HOME_COL.forEach((cells, p) => cells.forEach(([c, r]) => cellRect(c, r, COLORS[p])));
+  ctx.fillStyle = '#ccc';
+  ctx.fillRect(6 * CELL, 6 * CELL, 3 * CELL, 3 * CELL);
+  ctx.strokeStyle = '#999';
+  ctx.strokeRect(6 * CELL, 6 * CELL, 3 * CELL, 3 * CELL);
+}
+
+function stackOffsets(list) {
+  const groups = {};
+  list.forEach(t => {
+    if (players[t.p].tokens[t.i] === -1) return;
+    const v = visual[t.p][t.i];
+    const key = Math.round(v.x / 10) + ',' + Math.round(v.y / 10);
+    (groups[key] = groups[key] || []).push(t);
+  });
+  const offsets = {};
+  Object.values(groups).forEach(g => {
+    const n = g.length;
+    if (n < 2) return;
+    let spots;
+    let scale;
+    if (n === 2) { spots = [[-9, 2], [9, 2]]; scale = 0.72; }
+    else if (n === 3) { spots = [[0, -7], [-11, 7], [11, 7]]; scale = 0.62; }
+    else if (n === 4) { spots = [[-10, -6], [10, -6], [-10, 8], [10, 8]]; scale = 0.55; }
+    else { spots = null; scale = 0.5; }
+    g.forEach((t, k) => {
+      let dx, dy;
+      if (spots) { dx = spots[k][0]; dy = spots[k][1]; }
+      else { const a = (k / n) * Math.PI * 2; dx = Math.cos(a) * 12; dy = Math.sin(a) * 9; }
+      offsets[t.p + '-' + t.i] = { dx: dx, dy: dy, scale: scale };
+    });
+  });
+  return offsets;
+}
+
+function drawTokens(time) {
+  const list = [];
+  players.forEach((pl, p) => {
+    if (pl.type === 'off') return;
+    pl.tokens.forEach((prog, i) => list.push({ p, i }));
+  });
+  list.sort((a, b) => visual[a.p][a.i].y - visual[b.p][b.i].y);
+  const offsets = stackOffsets(list);
+  list.forEach(({ p, i }) => {
+    const v = visual[p][i];
+    const isMovable = phase === 'move' && p === current && p === mySeat && movable.includes(i);
+    const off = offsets[p + '-' + i];
+    if (off) {
+      ctx.save();
+      ctx.translate(v.x + off.dx, v.y + off.dy);
+      ctx.scale(off.scale, off.scale);
+      drawPawn(0, 0, COLORS[p], isMovable, time);
+      ctx.restore();
+    } else {
+      drawPawn(v.x, v.y, COLORS[p], isMovable, time);
+    }
+  });
+}
+
+// ---------- Dice drawing ----------
+const PIPS = {
+  1: [[0.5, 0.5]],
+  2: [[0.28, 0.28], [0.72, 0.72]],
+  3: [[0.28, 0.28], [0.5, 0.5], [0.72, 0.72]],
+  4: [[0.28, 0.28], [0.72, 0.28], [0.28, 0.72], [0.72, 0.72]],
+  5: [[0.28, 0.28], [0.72, 0.28], [0.5, 0.5], [0.28, 0.72], [0.72, 0.72]],
+  6: [[0.28, 0.25], [0.72, 0.25], [0.28, 0.5], [0.72, 0.5], [0.28, 0.75], [0.72, 0.75]]
+};
+
+function drawDice(time) {
+  const W = diceCanvas.height;
+  const CW = diceCanvas.width;
+  dctx.clearRect(0, 0, CW, W);
+  const face = dice || 1;
+  let angle = 0, jumpY = 0, scale = 1, shiftX = 0, squashY = 1, blur = 0;
+
+  if (diceAnim) {
+    const t = Math.min(1, (time - diceAnim.start) / diceAnim.duration);
+    const move = 1 - Math.pow(1 - t, 3);
+    shiftX = (1 - move) * -CW * 0.3;
+    angle = (1 - move) * Math.PI * 4.5;
+    const bounce = Math.abs(Math.sin(t * Math.PI * 3.2)) * Math.pow(1 - t, 1.6);
+    jumpY = bounce * W * 0.2;
+    if (jumpY < 3 && t > 0.05 && t < 0.97) squashY = 0.9;
+    blur = (1 - move) > 0.35 ? 1 : 0;
+    if (t >= 1) { const done = diceAnim.done; diceAnim.done = null; if (done) done(); }
+  }
+
+  const size = W * 0.5;
+  const cx = CW / 2 + shiftX, cy = W / 2 - jumpY;
+  dctx.fillStyle = 'rgba(0,0,0,' + (0.22 - jumpY * 0.004) + ')';
+  dctx.beginPath();
+  dctx.ellipse(cx, W / 2 + size / 2 + 8, size * 0.45 * (1 - jumpY / 120), size * 0.07, 0, 0, Math.PI * 2);
+  dctx.fill();
+
+  dctx.save();
+  dctx.translate(cx, cy);
+  dctx.rotate(angle);
+  dctx.scale(scale, scale * squashY);
+  if (blur) {
+    dctx.globalAlpha = 0.18;
+    dctx.fillStyle = '#ffffff';
+    dctx.strokeStyle = '#888';
+    for (let k = 1; k <= 2; k++) {
+      dctx.save();
+      dctx.rotate(-0.25 * k);
+      dctx.beginPath();
+      dctx.roundRect(-size / 2, -size / 2, size, size, size * 0.16);
+      dctx.fill();
+      dctx.stroke();
+      dctx.restore();
+    }
+    dctx.globalAlpha = 1;
+  }
+  dctx.fillStyle = '#ffffff';
+  dctx.strokeStyle = '#555';
+  dctx.lineWidth = 3;
+  dctx.beginPath();
+  dctx.roundRect(-size / 2, -size / 2, size, size, size * 0.16);
+  dctx.fill();
+  dctx.stroke();
+  dctx.fillStyle = face === 1 || face === 6 ? '#c62828' : '#1a1a1a';
+  (PIPS[face] || []).forEach(pip => {
+    dctx.beginPath();
+    dctx.arc((pip[0] - 0.5) * size, (pip[1] - 0.5) * size, size * 0.08, 0, Math.PI * 2);
+    dctx.fill();
+  });
+  dctx.restore();
+}
+
+// ---------- Main render loop ----------
+function frame(time) {
+  if (players.length && gameShown) {
+    if (phase !== 'moving') {
+      players.forEach((pl, p) => pl.tokens.forEach((_, i) => {
+        const target = tokenPixel(p, i), v = visual[p][i];
+        if (Math.abs(v.x - target.x) > 0.5 || Math.abs(v.y - target.y) > 0.5) {
+          v.x += (target.x - v.x) * 0.25;
+          v.y += (target.y - v.y) * 0.25;
+        }
+      }));
+    }
+    drawBoard(time);
+    drawTokens(time);
+  }
+  drawDice(time);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---------- Startup: invite link or resume ----------
+(function init() {
+  const room = new URLSearchParams(location.search).get('room');
+  if (room) $('codeInput').value = room.toUpperCase().slice(0, 4);
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('ludoSession') || 'null'); } catch (e) { /* ignore */ }
+  if (saved && saved.code && saved.cid && (!room || room.toUpperCase() === saved.code)) {
+    session = saved;
+    connect();
+  } else {
+    show('home');
+  }
+})();
+</script>
+</body>
+</html>
